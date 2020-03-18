@@ -1,0 +1,5 @@
+from .routes import (
+    AMADEUS_BASE_AUTHENTICATION_API, 
+    AIRPORT_SEARCH_API, 
+    FLIGHT_OFFERS_API
+)

@@ -3,10 +3,12 @@ from enum import Enum
 
 class Question(Enum):
     DESTINATION = 1
-    ORIGIN = 2
-    TRAVEL_DATE = 3
-    RETURN_DATE = 4
-    NONE = 5
+    DESTINATION_CHOICE = 2
+    ORIGIN = 3
+    ORIGIN_CHOICE = 4
+    TRAVEL_DATE = 5
+    RETURN_DATE = 6
+    NONE = 7
 
 
 class ConversationFlow:

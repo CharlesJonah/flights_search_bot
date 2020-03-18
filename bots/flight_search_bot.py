@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 from recognizers_number import recognize_number, Culture
@@ -9,10 +10,25 @@ from botbuilder.core import (
     TurnContext,
     UserState,
     MessageFactory,
+    CardFactory
 )
-from botbuilder.schema import ChannelAccount
+from botbuilder.schema import (
+    ChannelAccount, 
+    CardAction, 
+    CardImage, 
+    ActionTypes, 
+    HeroCard,
+    Attachment,
+    AttachmentLayoutTypes
+)
 
 from models import FlightSearch, ConversationFlow, Question
+
+from resources import AdaptiveCardHelper
+
+from helpers.authentication import Authenticate
+from helpers.services import HttpService
+from constants import AIRPORT_SEARCH_API, FLIGHT_OFFERS_API
 
 class ValidationResult:
     def __init__(
@@ -42,6 +58,21 @@ class FlightSearchBot(ActivityHandler):
 
         self.WELCOME_MESSAGE = """My name is John Doe, I am here to help you search for the
                                   best flight to your destination"""
+
+        # Amadesus API authentication for flight search
+        self.authenticate = Authenticate()
+        self.authenticate.login()
+        self.http_service = self.authenticate.http_service
+        self.airport_codes_http_service = HttpService()
+        self.http_service.config_service({
+            "APC-Auth": os.environ['AIRPORT_CODES_API_KEY'], 
+            "APC-Auth-Secret": os.environ['AIRPORT_CODES_API_SECRET']
+        })
+
+        # store a map of airport iata codes to names
+        self.airports = {}
+        
+        self.flights_search_summary = MessageFactory.list([])
 
     async def on_turn(self, turn_context: TurnContext):
         await super().on_turn(turn_context)
@@ -80,26 +111,64 @@ class FlightSearchBot(ActivityHandler):
     async def _flight_profile(self, flow: ConversationFlow, flight_search: FlightSearch, turn_context: TurnContext):
         user_input = turn_context.activity.text.strip()
 
+        airports = {}
+
         # ask for destination
         if flow.last_question_asked == Question.NONE:
             await turn_context.send_activity(
-                MessageFactory.text("Where will be flying to?")
+                MessageFactory.text("Which airport will be flying to?")
             )
             flow.last_question_asked = Question.DESTINATION
 
-        # ask for origin
+        # ask for airport of destination choice and save
         elif flow.last_question_asked == Question.DESTINATION:
+            res = self._search_airports_by_location(user_input)
+            validate_result =  self._validate_airports_result(res)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            else:
+                await self._send_card(
+                                turn_context=turn_context,
+                                title="Choose Destination Airport",
+                                text="""Please choose the correct 
+                                     Aiport that you will be going to""",
+                                buttons=self._create_card_actions_for_airport(validate_result.value))
+                flow.last_question_asked = Question.DESTINATION_CHOICE
+
+        #save choosen destination
+        elif flow.last_question_asked == Question.DESTINATION_CHOICE:
             flight_search.destination = user_input
+            flight_search.destination_city = self.airports[user_input]
             await turn_context.send_activity(
-                MessageFactory.text("Where will be flying from?")
+                MessageFactory.text("Which airport will be flying to?")
             )
             flow.last_question_asked = Question.ORIGIN
 
-        # ask for travel date
+        # ask for airport of origin choice
         elif flow.last_question_asked == Question.ORIGIN:
+            res = self._search_airports_by_location(user_input)
+            validate_result =  self._validate_airports_result(res)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            else:
+                await self._send_card(
+                                turn_context=turn_context,
+                                title="Choose Airport of Origin",
+                                text="""Please choose the correct 
+                                     Aiport that you will be departing from""",
+                                buttons=self._create_card_actions_for_airport(validate_result.value))
+                flow.last_question_asked = Question.ORIGIN_CHOICE
+
+        # ask for travel date
+        elif flow.last_question_asked == Question.ORIGIN_CHOICE:
             flight_search.origin = user_input
+            flight_search.origin_city = self.airports[user_input]
             await turn_context.send_activity(
-                MessageFactory.text("Enter the date of travel?")
+                MessageFactory.text("Enter the date of travel (mm/dd/yyy)?")
             )
             flow.last_question_asked = Question.TRAVEL_DATE
         
@@ -113,7 +182,7 @@ class FlightSearchBot(ActivityHandler):
             else:
                 flight_search.travel_date = validate_result.value
                 await turn_context.send_activity(
-                    MessageFactory.text("Enter the date of return?")
+                    MessageFactory.text("Enter the date of return (mm/dd/yyy)?")
                 )
                 flow.last_question_asked = Question.RETURN_DATE
 
@@ -129,19 +198,117 @@ class FlightSearchBot(ActivityHandler):
                 await turn_context.send_activity(
                     MessageFactory.text(
                         f"""Here is a summary of your search
-                         Origin - {flight_search.origin}
-                         Destination - {flight_search.destination}
+                         Origin - {flight_search.origin_city}
+                         Destination - {flight_search.destination_city}
                          Travel Date - {flight_search.travel_date}
                          Return Date - {flight_search.return_date}
                          """
                     )
                 )
-                await turn_context.send_activity(
-                    MessageFactory.text(
-                        f"I will be back shortly with the best flights from your search"
-                    )
-                )
+
+                self.flights_search_summary.attachments.append(self._create_flights_summary(flight_search))
+                await turn_context.send_activity(self.flights_search_summary)
                 flow.last_question_asked = Question.NONE
+    
+    async def _send_card(self, turn_context: TurnContext, title, text, buttons):
+        card = HeroCard(
+            title=title,
+            text=text,
+            images=[CardImage(url="https://www.aurecongroup.com/-/media/images/aurecon/content/projects/property/hanoi-airport/hanoi-airport-interior.jpg")],
+            buttons=buttons
+        )
+        return await turn_context.send_activity(
+            MessageFactory.attachment(CardFactory.hero_card(card))
+        )
+
+    def _create_card_actions_for_airport(self, airports):
+        buttons = []
+        self.airports = {}
+        for airport in airports:
+            self.airports[airport["iata"]] = airport["city"]
+            buttons.append(
+                CardAction(
+                    type=ActionTypes.post_back,
+                    title=airport["name"],
+                    text=airport["iata"],
+                    display_text=airport["name"],
+                    value=airport["iata"]
+                )
+            )
+        return buttons
+
+    def _search_flights(self, flight_search):
+        travel_date = flight_search.travel_date.split('/')
+        return_date = flight_search.return_date.split('/')
+        search_params = {
+            'originLocationCode': flight_search.origin,
+            'destinationLocationCode': flight_search.destination,
+            'departureDate': f"{travel_date[2]}-{travel_date[0]}-{travel_date[1]}",
+            'returnDate': f"{return_date[2]}-{return_date[0]}-{return_date[1]}",
+            'adults':1
+
+        }
+
+        res = self.http_service.get(FLIGHT_OFFERS_API, search_params)
+        if res.status_code != 200:
+            return ValidationResult(
+                is_valid=False,
+                message="I'm sorry, we couldn't retrieve flights for you, please retry the process",
+            )
+        else:
+            flights =  res.json()["data"]["itineraries"]
+            if flights:
+                return ValidationResult(
+                is_valid=True,
+                value=flights,
+            )
+            else:
+                return ValidationResult(
+                is_valid=False,
+                message="I'm sorry, we couldn't retrieve flights for you, please retry the process",
+            )
+
+    def _search_airports_by_location(self, airport):
+        res = self.http_service.post(AIRPORT_SEARCH_API, { "term": airport })
+        return res.json()
+    
+    def _validate_airports_result(self, res):
+        if len(res["airports"]) > 0:
+            return ValidationResult(
+                is_valid=True,
+                value=res["airports"],
+            )
+        else:
+            return ValidationResult(
+                is_valid=False,
+                message="I'm sorry, we couldn't retrieve that airport, please enter a different name",
+            )
+
+    def _create_flights_summary(self, flight_search):
+        return CardFactory.adaptive_card(AdaptiveCardHelper.create_search_summary_adapative_card(
+            flight_search.origin,
+            flight_search.origin_city,
+            flight_search.travel_date
+
+        ))
+
+    def _create_hero_card(self) -> Attachment:
+        card = HeroCard(
+            title="",
+            images=[
+                CardImage(
+                    url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg"
+                )
+            ],
+            buttons=[
+                CardAction(
+                    type=ActionTypes.open_url,
+                    title="Get Started",
+                    value="https://docs.microsoft.com/en-us/azure/bot-service/",
+                )
+            ],
+        )
+        return CardFactory.hero_card(card)
 
     def _validate_date(self, user_input: str) -> ValidationResult:
         try:
@@ -170,7 +337,7 @@ class FlightSearchBot(ActivityHandler):
                         if diff.total_seconds() >= 3600:
                             return ValidationResult(
                                 is_valid=True,
-                                value=candidate.strftime("%m/%d/%y"),
+                                value=candidate.strftime("%m/%d/%Y"),
                             )
 
             return ValidationResult(
