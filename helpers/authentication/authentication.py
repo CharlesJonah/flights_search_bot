@@ -16,7 +16,6 @@ class Authenticate:
         res = self.http_service.post(AMADEUS_BASE_AUTHENTICATION_API, {
             'client_id': os.environ['AMADEUS_API_KEY'], 'client_secret': os.environ['AMADEUS_API_SECRET'],
             'grant_type':'client_credentials'})
-        print(res.json())
         self.http_service.config_service(
             {'Authorization': f"Bearer {res.json()['access_token']}"})
 
