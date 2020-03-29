@@ -5,10 +5,13 @@ class Question(Enum):
     DESTINATION = 1
     DESTINATION_CHOICE = 2
     ORIGIN = 3
-    ORIGIN_CHOICE = 4
-    TRAVEL_DATE = 5
-    RETURN_DATE = 6
-    NONE = 7
+    RETURN_TRIP = 4
+    ORIGIN_CHOICE = 5
+    TRAVEL_DATE = 6
+    RETURN_DATE = 7
+    CABIN_CLASS = 8
+    ADULTS = 9
+    NONE = 10
 
 
 class ConversationFlow:

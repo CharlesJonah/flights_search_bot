@@ -4,8 +4,9 @@ class FlightSearch:
     """
 
     def __init__(self, origin: str = None, destination: str = None, 
-                  travel_date: str = None, return_date: str = None, return_trip: int = -1,
-                  origin_city: str = None, destination_city: str = None,):
+                  travel_date: str = None, return_date: str = None, return_trip: bool = False,
+                  origin_city: str = None, destination_city: str = None, cabin_class: str = None,
+                  adults: int = 1):
         self.origin = origin
         self.origin_city = origin_city
         self.destination = destination
@@ -13,3 +14,5 @@ class FlightSearch:
         self.return_trip = return_trip
         self.travel_date = travel_date
         self.return_date = return_date
+        self.cabin_class = cabin_class
+        self.adults = adults
