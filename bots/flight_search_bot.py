@@ -1,5 +1,6 @@
 import os
 import json 
+from urllib.parse import urlencode
 from datetime import datetime
 
 from recognizers_number import recognize_number, Culture
@@ -26,11 +27,21 @@ from botbuilder.schema import (
 )
 
 from resources import CustomAdaptiveCard
-from models import FlightSearch, ConversationFlow, Question
+from models import (
+    FlightSearch, 
+    ConversationFlow, 
+    Question,
+    State,
+    ChatState,
+)
 
 from helpers.authentication import Authenticate
 from helpers.services import HttpService
-from constants import AIRPORT_SEARCH_API, FLIGHT_OFFERS_API
+from constants import (
+    AIRPORT_SEARCH_API, 
+    FLIGHT_OFFERS_API,
+    FLIGHT_SEARCH_BASE_URL,
+)
 
 class ValidationResult:
     def __init__(
@@ -57,6 +68,7 @@ class FlightSearchBot(ActivityHandler):
 
         self.flow_accessor = self.conversation_state.create_property("ConversationFlow")
         self.profile_accessor = self.user_state.create_property("UserProfile")
+        self.chat_state_accessor = self.conversation_state.create_property("ChatState")
 
         # Amadesus API authentication for flight search
         self.authenticate = Authenticate()
@@ -96,18 +108,19 @@ class FlightSearchBot(ActivityHandler):
         # Get the state properties from the turn context.
         flight_search = await self.profile_accessor.get(turn_context, FlightSearch)
         flow = await self.flow_accessor.get(turn_context, ConversationFlow)
+        chat_state = await self.chat_state_accessor.get(turn_context, ChatState)
 
         user_input = turn_context.activity.text.strip()
         if user_input in ["exit", "cancel"]:
-            await turn_context.send_activity(
-                MessageFactory.text(
-                    """ 
-                    I am sorry that you are leaving, 
-                    incase you change your mind,
-                    come back again and continue chatting with me
-                    """
-                )
-            )
+            await self._on_cancel(turn_context)
+            chat_state.chat_state = State.PAUSED
+        elif chat_state.chat_state == State.PAUSED:
+            await self._on_return_from_exit(turn_context)
+        elif (chat_state.chat_state == State.PAUSED) and (user_input == "start_over"):
+            chat_state.chat_state = State.NORMAL
+            flow.last_question_asked = Question.NONE
+            await self._flight_profile(flow, flight_search, turn_context, user_input)
+
         elif (flow.last_question_asked == Question.NONE) and (user_input not in ["book_flight", "cancel"]):
             await turn_context.send_activity(
                 MessageFactory.text(
@@ -119,11 +132,23 @@ class FlightSearchBot(ActivityHandler):
             )
             await self._create_welcome_card(turn_context)
         else:
+            chat_state.chat_state = State.NORMAL
             await self._flight_profile(flow, flight_search, turn_context, user_input)
 
         # Save changes to UserState and ConversationState
         await self.conversation_state.save_changes(turn_context)
         await self.user_state.save_changes(turn_context)
+
+    async def _on_cancel(self, turn_context):
+        await turn_context.send_activity(
+                MessageFactory.text(
+                    """ 
+                    I am sorry that you are leaving, 
+                    incase you change your mind,
+                    come back again and continue chatting with me
+                    """
+                )
+            )
 
     async def _flight_profile(self, flow: ConversationFlow, 
         flight_search: FlightSearch, turn_context: TurnContext, user_input):
@@ -242,18 +267,12 @@ class FlightSearchBot(ActivityHandler):
                 await turn_context.send_activity(
                     MessageFactory.text(validate_result.message)
                 )
+                await self._create_cabin_class_card(turn_context)
             else:
                 flight_search.cabin_class = validate_result.value
                 await turn_context.send_activity(
                     MessageFactory.text("Enter the number of adults booking this flight")
                 )
-
-                message = Activity(
-                    type=ActivityTypes.message,
-                    attachments=[self._create_flight_summary(flight_search)],
-                )
-                await turn_context.send_activity(message)
-
                 flow.last_question_asked = Question.ADULTS
 
         #validate previous response and ask user to modify/ check flights/ cancel the search
@@ -265,24 +284,33 @@ class FlightSearchBot(ActivityHandler):
                 )
             else:
                 flight_search.adults = validate_result.value
-                await turn_context.send_activity(
-                        MessageFactory.text(
-                            f"""Here is a summary of your search
-                            Origin - {flight_search.origin_city}
-                            Destination - {flight_search.destination_city}
-                            Travel Date - {flight_search.travel_date}
-                            Return Date - {flight_search.return_date}
-                            """
-                        )
-                    )
                 message = Activity(
                     type=ActivityTypes.message,
                     attachments=[self._create_flight_summary(flight_search)],
                 )
-                self.flight_search_summary.attachments.append(self._create_flight_summary(flight_search))
                 await turn_context.send_activity(message)
                 flow.last_question_asked = Question.NONE
     
+    
+    def _create_flight_search_url(self, flight_search):
+        """create url that when a button with the url is clicked, 
+            it takes us to a page with a list of flights returned by the url
+        """
+        query_params = {
+            "cabinClass":flight_search.cabin_class,
+            "country":"KE",
+            "currency":"KES",
+            "locale":"en",
+            "origin":flight_search.origin,
+            "destination":flight_search.destination,
+            "outboundDate":flight_search.travel_date,
+            "inboundDate":flight_search.return_date,
+            "adults":"1",
+            "children":"0",
+            "infants":"0"
+        }
+        return f"{FLIGHT_SEARCH_BASE_URL}?{urlencode(query_params)}"
+        
     async def _create_return_trip_select_card(self, turn_context: TurnContext):
         card = HeroCard(
             title="Return Trip",
@@ -325,9 +353,9 @@ class FlightSearchBot(ActivityHandler):
                 CardAction(
                     type=ActionTypes.post_back,
                     title="Premium Economy",
-                    text="Premium Economy",
+                    text="PremiumEconomy",
                     display_text="Premium Economy",
-                    value="Premium Economy"
+                    value="PremiumEconomy"
                 ),
                 CardAction(
                     type=ActionTypes.post_back,
@@ -339,9 +367,9 @@ class FlightSearchBot(ActivityHandler):
                 CardAction(
                     type=ActionTypes.post_back,
                     title="First Class",
-                    text="First Class",
+                    text="First",
                     display_text="First Class",
-                    value="First Class"
+                    value="First"
                 )
             ]
         )
@@ -349,6 +377,33 @@ class FlightSearchBot(ActivityHandler):
             MessageFactory.attachment(CardFactory.hero_card(card))
         )
 
+    async def _on_return_from_exit(self, turn_context: TurnContext):
+        text = """Hey, do you want to continue from where you left or your prefer start over again?"""
+        card = HeroCard(
+            title="Welcome Back",
+            text=text,
+            images=[CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
+            buttons=[
+                CardAction(
+                    type=ActionTypes.post_back,
+                    title="Continue",
+                    text="continue",
+                    display_text="Continue",
+                    value="continue"
+                ),
+                CardAction(
+                    type=ActionTypes.post_back,
+                    title="Start Over",
+                    text="start_over",
+                    display_text="Start Over",
+                    value="start over"
+                )
+            ]
+        )
+        return await turn_context.send_activity(
+            MessageFactory.attachment(CardFactory.hero_card(card))
+        )
+    
     async def _create_welcome_card(self, turn_context: TurnContext):
         text = """Hello, I am here to help you search for the
                     best flight to your destination. Pleace click the 
@@ -480,7 +535,7 @@ class FlightSearchBot(ActivityHandler):
                 Please enter a different name""",
             )
     def _validate_cabin_class(self, user_input):
-        if user_input in ["Economy", "Premium Economy", "Business", "First Class"]:
+        if user_input in ["Economy", "PremiumEconomy", "Business", "First"]:
             return ValidationResult(
                 is_valid=True,
                 value=user_input,
@@ -504,9 +559,9 @@ class FlightSearchBot(ActivityHandler):
             )
 
     def _create_flight_summary(self, flight_search):
-        print('--', flight_search.__dict__)
+        flight_search_results_url = self._create_flight_search_url(flight_search)
         return CardFactory.adaptive_card(
-            CustomAdaptiveCard.create_flight_summary_adaptive_card(flight_search.__dict__)
+            CustomAdaptiveCard.create_flight_summary_adaptive_card(flight_search.__dict__, flight_search_results_url)
         )
 
     def _create_hero_card(self) -> Attachment:
@@ -568,7 +623,7 @@ class FlightSearchBot(ActivityHandler):
                         if diff.total_seconds() >= 3600:
                             return ValidationResult(
                                 is_valid=True,
-                                value=candidate.strftime("%m/%d/%Y"),
+                                value=candidate.strftime("%Y-%m-%d"),
                             )
 
             return ValidationResult(

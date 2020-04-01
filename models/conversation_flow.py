@@ -12,6 +12,7 @@ class Question(Enum):
     CABIN_CLASS = 8
     ADULTS = 9
     NONE = 10
+    COMPLETED = 11
 
 
 class ConversationFlow:
@@ -19,3 +20,14 @@ class ConversationFlow:
         self, last_question_asked: Question = Question.NONE,
     ):
         self.last_question_asked = last_question_asked
+
+class State(Enum):
+    NORMAL = 1
+    PAUSED = 2
+    MODIFY = 3
+
+class ChatState:
+    def __init__(
+        self, chat_state: State = State.NORMAL,
+    ):
+        self.chat_state = chat_state

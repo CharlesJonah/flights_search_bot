@@ -1,7 +1,6 @@
 class CustomAdaptiveCard:
     @staticmethod
-    def create_flight_summary_adaptive_card(flight):
-        print('--', flight)
+    def create_flight_summary_adaptive_card(flight_search, flight_search_results_url):
         return {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.0",
@@ -16,7 +15,7 @@ class CustomAdaptiveCard:
                 },
                 {
                     "type": "TextBlock",
-                    "text": flight["travel_date"],
+                    "text": flight_search["travel_date"],
                     "weight": "bolder",
                     "spacing": "none",
                 },
@@ -30,14 +29,14 @@ class CustomAdaptiveCard:
                             "items": [
                                 {
                                     "type": "TextBlock",
-                                    "text": flight["origin_city"],
+                                    "text": flight_search["origin_city"],
                                     "isSubtle": True,
                                 },
                                 {
                                     "type": "TextBlock",
                                     "size": "extraLarge",
                                     "color": "accent",
-                                    "text": flight["origin"],
+                                    "text": flight_search["origin"],
                                     "spacing": "none",
                                 },
                             ],
@@ -62,7 +61,7 @@ class CustomAdaptiveCard:
                                 {
                                     "type": "TextBlock",
                                     "horizontalAlignment": "right",
-                                    "text": flight["destination_city"],
+                                    "text": flight_search["destination_city"],
                                     "isSubtle": True,
                                 },
                                 {
@@ -70,7 +69,7 @@ class CustomAdaptiveCard:
                                     "horizontalAlignment": "right",
                                     "size": "extraLarge",
                                     "color": "accent",
-                                    "text": flight["destination"],
+                                    "text": flight_search["destination"],
                                     "spacing": "none",
                                 },
                             ],
@@ -79,7 +78,7 @@ class CustomAdaptiveCard:
                 },
                 {
                     "type": "TextBlock",
-                    "text": flight["return_date"],
+                    "text": flight_search["return_date"],
                     "weight": "bolder",
                     "spacing": "none",
                 },
@@ -91,12 +90,12 @@ class CustomAdaptiveCard:
                             "type": "Column",
                             "width": 1,
                             "items": [
-                                {"type": "TextBlock", "text": flight["destination_city"], "isSubtle": True},
+                                {"type": "TextBlock", "text": flight_search["destination_city"], "isSubtle": True},
                                 {
                                     "type": "TextBlock",
                                     "size": "extraLarge",
                                     "color": "accent",
-                                    "text": flight["destination"],
+                                    "text": flight_search["destination"],
                                     "spacing": "none",
                                 },
                             ],
@@ -121,7 +120,7 @@ class CustomAdaptiveCard:
                                 {
                                     "type": "TextBlock",
                                     "horizontalAlignment": "right",
-                                    "text": flight["origin_city"],
+                                    "text": flight_search["origin_city"],
                                     "isSubtle": True,
                                 },
                                 {
@@ -129,7 +128,7 @@ class CustomAdaptiveCard:
                                     "horizontalAlignment": "right",
                                     "size": "extraLarge",
                                     "color": "accent",
-                                    "text": flight["origin"],
+                                    "text": flight_search["origin"],
                                     "spacing": "none",
                                 },
                             ],
@@ -167,5 +166,20 @@ class CustomAdaptiveCard:
                         },
                     ],
                 },
+                {
+                "type": "ActionSet",
+                "actions": [
+                    {
+                        "type": "Action.OpenUrl",
+                        "title": "Search Flights",
+                        "url": flight_search_results_url
+                    },
+                    {
+                        "type": "Action.Submit",
+                        "title": "Modify Flight Search",
+                        "data": "modify"
+                    },
+                ]
+            }
             ],
         }
