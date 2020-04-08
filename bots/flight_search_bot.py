@@ -130,7 +130,7 @@ class FlightSearchBot(ActivityHandler):
         else:
             user_input = turn_context.activity.text.strip()
         if user_input in ["exit", "cancel"]:
-            flow.last_question_asked == Question.NONE
+            flow.last_question_asked = Question.NONE
             flow.question_being_modified = Question.COMPLETED
             chat_state.chat_state = State.NORMAL
             await self._on_cancel(turn_context)
@@ -174,14 +174,6 @@ class FlightSearchBot(ActivityHandler):
                 buttons = self._create_card_actions_for_modify_flight_profile()
                 await self._create_modify_flight_profile_card(turn_context, buttons)
         elif (flow.last_question_asked == Question.NONE) and (user_input not in ["book_flight", "exit"]):
-            await turn_context.send_activity(
-                MessageFactory.text(
-                    """ 
-                    I am sorry that I could not understand your message.
-                    Please respond by clicking the Flight Booking or Cancel button.
-                    """
-                )
-            )
             await self._create_welcome_card(turn_context)
         else:
             await self._flight_profile(flow, flight_search, turn_context, user_input, chat_state)

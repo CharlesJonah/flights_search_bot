@@ -1,5 +1,5 @@
 from config import DefaultConfig
-from bot import FlightSearchBot
+from bots import FlightSearchBot
 from botbuilder.schema import Activity, ActivityTypes
 from botbuilder.core.integration import aiohttp_error_middleware
 from botbuilder.core import (
@@ -58,12 +58,16 @@ async def on_error(context: TurnContext, error: Exception):
 
 ADAPTER.on_turn_error = on_error
 
-# Create MemoryStorage, ConversationState, UserState
-MEMORY = MemoryStorage()
-CONVERSATION_STATE = ConversationState(MEMORY)
-USER_STATE = UserState(MEMORY)
+try:
+    # Create MemoryStorage, ConversationState, UserState
+    MEMORY = MemoryStorage()
+    CONVERSATION_STATE = ConversationState(MEMORY)
+    USER_STATE = UserState(MEMORY)
 
-BOT = FlightSearchBot(CONVERSATION_STATE, USER_STATE)
+    BOT = FlightSearchBot(CONVERSATION_STATE, USER_STATE)
+except Exception as err:
+    print(f"\n [unhandled error]: {err}")
+
 
 # Listen for incoming requests on /api/messages.
 
