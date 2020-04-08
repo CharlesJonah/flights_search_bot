@@ -1,5 +1,5 @@
 import os
-import json 
+import json
 from urllib.parse import urlencode
 from datetime import datetime
 
@@ -15,10 +15,10 @@ from botbuilder.core import (
     CardFactory
 )
 from botbuilder.schema import (
-    ChannelAccount, 
-    CardAction, 
-    CardImage, 
-    ActionTypes, 
+    ChannelAccount,
+    CardAction,
+    CardImage,
+    ActionTypes,
     HeroCard,
     Attachment,
     AttachmentLayoutTypes,
@@ -28,8 +28,8 @@ from botbuilder.schema import (
 
 from resources import CustomAdaptiveCard
 from models import (
-    FlightSearch, 
-    ConversationFlow, 
+    FlightSearch,
+    ConversationFlow,
     Question,
     State,
     ChatState,
@@ -38,10 +38,11 @@ from models import (
 from helpers.authentication import Authenticate
 from helpers.services import HttpService
 from constants import (
-    AIRPORT_SEARCH_API, 
+    AIRPORT_SEARCH_API,
     FLIGHT_OFFERS_API,
     FLIGHT_SEARCH_BASE_URL,
 )
+
 
 class ValidationResult:
     def __init__(
@@ -50,6 +51,7 @@ class ValidationResult:
         self.is_valid = is_valid
         self.value = value
         self.message = message
+
 
 class FlightSearchBot(ActivityHandler):
     def __init__(self, conversation_state: ConversationState, user_state: UserState):
@@ -61,14 +63,15 @@ class FlightSearchBot(ActivityHandler):
             raise TypeError(
                 "[DialogBot]: Missing parameter. user_state is required but None was given"
             )
-        
 
         self.conversation_state = conversation_state
         self.user_state = user_state
 
-        self.flow_accessor = self.conversation_state.create_property("ConversationFlow")
+        self.flow_accessor = self.conversation_state.create_property(
+            "ConversationFlow")
         self.profile_accessor = self.user_state.create_property("UserProfile")
-        self.chat_state_accessor = self.conversation_state.create_property("ChatState")
+        self.chat_state_accessor = self.conversation_state.create_property(
+            "ChatState")
 
         # Amadesus API authentication for flight search
         self.authenticate = Authenticate()
@@ -76,12 +79,21 @@ class FlightSearchBot(ActivityHandler):
         self.http_service = self.authenticate.http_service
         self.airport_codes_http_service = HttpService()
         self.http_service.config_service({
-            "APC-Auth": os.environ['AIRPORT_CODES_API_KEY'], 
+            "APC-Auth": os.environ['AIRPORT_CODES_API_KEY'],
             "APC-Auth-Secret": os.environ['AIRPORT_CODES_API_SECRET']
         })
 
         # store a map of airport iata codes to names
         self.airports = {}
+        # store a map of all dialog question
+        self.questions = {"Destination": Question.NONE,
+                          "Origin": Question.DESTINATION_CHOICE,
+                          "If Return Trip": Question.ORIGIN_CHOICE,
+                          "Travel Date": Question.RETURN_TRIP,
+                          "Return Date": Question.TRAVEL_DATE,
+                          "Cabin Class": Question.RETURN_DATE,
+                          "Number of Passenger": Question.CABIN_CLASS
+                          }
 
     async def on_turn(self, turn_context: TurnContext):
         await super().on_turn(turn_context)
@@ -109,19 +121,59 @@ class FlightSearchBot(ActivityHandler):
         flight_search = await self.profile_accessor.get(turn_context, FlightSearch)
         flow = await self.flow_accessor.get(turn_context, ConversationFlow)
         chat_state = await self.chat_state_accessor.get(turn_context, ChatState)
-
-        user_input = turn_context.activity.text.strip()
+        if flow.last_question_asked == Question.PASSENGERS:
+            user_input = [
+                turn_context.activity.value.get('adults'),
+                turn_context.activity.value.get('children'),
+                turn_context.activity.value.get('infants')
+            ]
+        else:
+            user_input = turn_context.activity.text.strip()
         if user_input in ["exit", "cancel"]:
-            await self._on_cancel(turn_context)
-            chat_state.chat_state = State.PAUSED
-        elif chat_state.chat_state == State.PAUSED:
-            await self._on_return_from_exit(turn_context)
-        elif (chat_state.chat_state == State.PAUSED) and (user_input == "start_over"):
+            flow.last_question_asked == Question.NONE
+            flow.question_being_modified = Question.COMPLETED
             chat_state.chat_state = State.NORMAL
-            flow.last_question_asked = Question.NONE
-            await self._flight_profile(flow, flight_search, turn_context, user_input)
-
-        elif (flow.last_question_asked == Question.NONE) and (user_input not in ["book_flight", "cancel"]):
+            await self._on_cancel(turn_context)
+        elif (flow.last_question_asked == Question.COMPLETED) and (user_input == "modify"):
+            chat_state.chat_state = State.MODIFY
+            buttons = self._create_card_actions_for_modify_flight_profile()
+            await self._create_modify_flight_profile_card(turn_context, buttons)
+        elif chat_state.chat_state == State.MODIFY:
+            if self._is_valid_modify_option(flow, user_input):
+                flow.question_being_modified = self.questions[user_input] if flow.question_being_modified == Question.COMPLETED \
+                    else flow.question_being_modified
+                flow.last_question_asked = self.questions[user_input] if flow.last_question_asked == Question.COMPLETED \
+                    else flow.last_question_asked
+                if flow.question_being_modified == Question.NONE:
+                    await self._modify_flight_profile_destination(
+                        flow, flight_search, turn_context, user_input, chat_state)
+                elif flow.question_being_modified == Question.DESTINATION_CHOICE:
+                    await self._modify_flight_profile_origin(
+                        flow, flight_search, turn_context, user_input, chat_state)
+                elif flow.question_being_modified == Question.ORIGIN_CHOICE:
+                    await self._modify_flight_profile_return_trip(
+                        flow, flight_search, turn_context, user_input, chat_state)
+                elif flow.question_being_modified == Question.RETURN_TRIP:
+                    await self._modify_flight_profile_travel_date(
+                        flow, flight_search, turn_context, user_input, chat_state)
+                elif flow.question_being_modified == Question.TRAVEL_DATE:
+                    await self._modify_flight_profile_return_date(
+                        flow, flight_search, turn_context, user_input, chat_state)
+                elif flow.question_being_modified == Question.RETURN_DATE:
+                    await self._modify_flight_profile_cabin_class(
+                        flow, flight_search, turn_context, user_input, chat_state)
+                elif flow.question_being_modified == Question.CABIN_CLASS:
+                    await self._modify_flight_profile_number_of_passengers(
+                        flow, flight_search, turn_context, user_input, chat_state)
+            else:
+                await turn_context.send_activity(
+                    MessageFactory.text(
+                        "Please select a valid modify option from the options below"
+                    )
+                )
+                buttons = self._create_card_actions_for_modify_flight_profile()
+                await self._create_modify_flight_profile_card(turn_context, buttons)
+        elif (flow.last_question_asked == Question.NONE) and (user_input not in ["book_flight", "exit"]):
             await turn_context.send_activity(
                 MessageFactory.text(
                     """ 
@@ -132,35 +184,28 @@ class FlightSearchBot(ActivityHandler):
             )
             await self._create_welcome_card(turn_context)
         else:
-            chat_state.chat_state = State.NORMAL
-            await self._flight_profile(flow, flight_search, turn_context, user_input)
+            await self._flight_profile(flow, flight_search, turn_context, user_input, chat_state)
 
         # Save changes to UserState and ConversationState
         await self.conversation_state.save_changes(turn_context)
         await self.user_state.save_changes(turn_context)
 
-    async def _on_cancel(self, turn_context):
-        await turn_context.send_activity(
-                MessageFactory.text(
-                    """ 
-                    I am sorry that you are leaving, 
-                    incase you change your mind,
-                    come back again and continue chatting with me
-                    """
-                )
-            )
+    def _is_valid_modify_option(self, flow, user_input):
+        options = [k for k, v in self.questions.items()]
+        if flow.last_question_asked == Question.COMPLETED and user_input not in options:
+            return False
+        else:
+            return True
 
-    async def _flight_profile(self, flow: ConversationFlow, 
-        flight_search: FlightSearch, turn_context: TurnContext, user_input):
-        airports = {}
-
+    async def _modify_flight_profile_destination(self, flow: ConversationFlow,
+                                                 flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
         # ask for destination
         if flow.last_question_asked == Question.NONE:
             await turn_context.send_activity(
                 MessageFactory.text("Which airport will you be flying to?")
             )
             flow.last_question_asked = Question.DESTINATION
-            
+
         # validate previous response and ask for destination airport choice
         elif flow.last_question_asked == Question.DESTINATION:
             validate_result = self._search_airports_by_location(user_input)
@@ -169,12 +214,199 @@ class FlightSearchBot(ActivityHandler):
                     MessageFactory.text(validate_result.message)
                 )
             else:
-                await self._send_card(
-                                turn_context=turn_context,
-                                title="Choose Destination Airport",
-                                text="""Please choose the correct 
+                await self._create_herocard(
+                    turn_context=turn_context,
+                    title="Choose Destination Airport",
+                    text="""Please choose the correct 
                                      Aiport that you will be going to""",
-                                buttons=self._create_card_actions_for_airport(validate_result.value))
+                    buttons=self._create_card_actions_for_airport(validate_result.value))
+                flow.last_question_asked = Question.DESTINATION_CHOICE
+
+        # save response
+        elif flow.last_question_asked == Question.DESTINATION_CHOICE:
+            flight_search.destination = user_input
+            flight_search.destination_city = self.airports[user_input]
+            chat_state.chat_state = State.NORMAL
+            flow.question_being_modified = Question.COMPLETED
+            flow.last_question_asked = Question.COMPLETED
+            await self._display_summary_card(turn_context, flight_search)
+
+    async def _modify_flight_profile_origin(self, flow: ConversationFlow,
+                                            flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        # ask for airport of origin
+        if flow.last_question_asked == Question.DESTINATION_CHOICE:
+            await turn_context.send_activity(
+                MessageFactory.text("Which airport will you be flying from?")
+            )
+            flow.last_question_asked = Question.ORIGIN
+
+        # validate previous response and  ask for airport of origin choice
+        elif flow.last_question_asked == Question.ORIGIN:
+            validate_result = self._search_airports_by_location(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            else:
+                await self._create_herocard(
+                    turn_context=turn_context,
+                    title="Choose Airport of Origin",
+                    text="""Please choose the correct 
+                                     Aiport that you will be departing from""",
+                    buttons=self._create_card_actions_for_airport(validate_result.value))
+                flow.last_question_asked = Question.ORIGIN_CHOICE
+
+        # validate previous response and ask if it is a return trip
+        elif flow.last_question_asked == Question.ORIGIN_CHOICE:
+            validate_result = self._validate_origin(
+                user_input, flight_search.destination)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+                flow.last_question_asked = Question.ORIGIN
+            else:
+                flight_search.origin = user_input
+                flight_search.origin_city = self.airports[user_input]
+                chat_state.chat_state = State.NORMAL
+                flow.question_being_modified = Question.COMPLETED
+                flow.last_question_asked = Question.COMPLETED
+                await self._display_summary_card(turn_context, flight_search)
+
+    async def _modify_flight_profile_return_trip(self, flow: ConversationFlow,
+                                                 flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        # ask if it is a return trip
+        if flow.last_question_asked == Question.ORIGIN_CHOICE:
+            await self._create_return_trip_select_card(turn_context)
+            flow.last_question_asked = Question.RETURN_TRIP
+        # validate previous response
+        elif flow.last_question_asked == Question.RETURN_TRIP:
+            validate_result = self._validate_return_trip_value(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+                await self._create_return_trip_select_card(turn_context)
+            else:
+                flight_search.return_trip = validate_result.value
+                chat_state.chat_state = State.NORMAL
+                flow.question_being_modified = Question.COMPLETED
+                flow.last_question_asked = Question.COMPLETED
+                await self._display_summary_card(turn_context, flight_search)
+
+    async def _modify_flight_profile_travel_date(self, flow: ConversationFlow,
+                                                 flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        # ask for travel date
+        if flow.last_question_asked == Question.RETURN_TRIP:
+            await turn_context.send_activity(
+                MessageFactory.text("Enter the date of travel (mm/dd/yyy)?")
+            )
+            flow.last_question_asked = Question.TRAVEL_DATE
+
+        # validate previous response
+        elif flow.last_question_asked == Question.TRAVEL_DATE:
+            validate_result = self._validate_date(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            elif flight_search.return_trip:
+                flight_search.travel_date = validate_result.value
+                chat_state.chat_state = State.NORMAL
+                flow.question_being_modified = Question.COMPLETED
+                flow.last_question_asked = Question.COMPLETED
+                await self._display_summary_card(turn_context, flight_search)
+
+    async def _modify_flight_profile_return_date(self, flow: ConversationFlow,
+                                                 flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        # ask for return date
+        if flow.last_question_asked == Question.TRAVEL_DATE:
+            await turn_context.send_activity(
+                MessageFactory.text("Enter the date of return (mm/dd/yyy)?")
+            )
+            flow.last_question_asked = Question.RETURN_DATE
+
+        # validate previous response
+        elif flow.last_question_asked == Question.RETURN_DATE:
+            validate_result = self._validate_date(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            else:
+                flight_search.return_date = validate_result.value
+                chat_state.chat_state = State.NORMAL
+                flow.question_being_modified = Question.COMPLETED
+                flow.last_question_asked = Question.COMPLETED
+                await self._display_summary_card(turn_context, flight_search)
+
+    async def _modify_flight_profile_cabin_class(self, flow: ConversationFlow,
+                                                 flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        # ask for cabin class
+        if flow.last_question_asked == Question.RETURN_DATE:
+            await self._create_cabin_class_card(turn_context)
+            flow.last_question_asked = Question.CABIN_CLASS
+
+        # validate previous response
+        elif flow.last_question_asked == Question.CABIN_CLASS:
+            validate_result = self._validate_cabin_class(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+                await self._create_cabin_class_card(turn_context)
+            else:
+                flight_search.cabin_class = validate_result.value
+                chat_state.chat_state = State.NORMAL
+                flow.question_being_modified = Question.COMPLETED
+                flow.last_question_asked = Question.COMPLETED
+                await self._display_summary_card(turn_context, flight_search)
+
+    async def _modify_flight_profile_number_of_passengers(self, flow: ConversationFlow,
+                                                          flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        if flow.last_question_asked == Question.CABIN_CLASS:
+            message = Activity(
+                type=ActivityTypes.message,
+                attachments=[self._create_number_of_passengers_card()],
+            )
+            await turn_context.send_activity(message)
+            flow.last_question_asked = Question.PASSENGERS
+
+        # validate previous response
+        elif flow.last_question_asked == Question.PASSENGERS:
+            flight_search.adults = user_input[0]
+            flight_search.children = user_input[1]
+            flight_search.infants = user_input[2]
+            chat_state.chat_state = State.NORMAL
+            flow.question_being_modified = Question.COMPLETED
+            flow.last_question_asked = Question.COMPLETED
+            await self._display_summary_card(turn_context, flight_search)
+
+    async def _flight_profile(self, flow: ConversationFlow,
+                              flight_search: FlightSearch, turn_context: TurnContext, user_input, chat_state):
+        airports = {}
+
+        # ask for destination
+        if flow.last_question_asked == Question.NONE:
+            await turn_context.send_activity(
+                MessageFactory.text("Which airport will you be flying to?")
+            )
+            flow.last_question_asked = Question.DESTINATION
+
+        # validate previous response and ask for destination airport choice
+        elif flow.last_question_asked == Question.DESTINATION:
+            validate_result = self._search_airports_by_location(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            else:
+                await self._create_herocard(
+                    turn_context=turn_context,
+                    title="Choose Destination Airport",
+                    text="""Please choose the correct 
+                                     Aiport that you will be going to""",
+                    buttons=self._create_card_actions_for_airport(validate_result.value))
                 flow.last_question_asked = Question.DESTINATION_CHOICE
 
         # validate previous response and then ask for airport of origin
@@ -194,17 +426,18 @@ class FlightSearchBot(ActivityHandler):
                     MessageFactory.text(validate_result.message)
                 )
             else:
-                await self._send_card(
-                                turn_context=turn_context,
-                                title="Choose Airport of Origin",
-                                text="""Please choose the correct 
+                await self._create_herocard(
+                    turn_context=turn_context,
+                    title="Choose Airport of Origin",
+                    text="""Please choose the correct 
                                      Aiport that you will be departing from""",
-                                buttons=self._create_card_actions_for_airport(validate_result.value))
+                    buttons=self._create_card_actions_for_airport(validate_result.value))
                 flow.last_question_asked = Question.ORIGIN_CHOICE
 
         # avalidate previous response and ask if it is a return trip
         elif flow.last_question_asked == Question.ORIGIN_CHOICE:
-            validate_result = self._validate_origin(user_input, flight_search.destination)
+            validate_result = self._validate_origin(
+                user_input, flight_search.destination)
             if not validate_result.is_valid:
                 await turn_context.send_activity(
                     MessageFactory.text(validate_result.message)
@@ -215,7 +448,7 @@ class FlightSearchBot(ActivityHandler):
                 flight_search.origin_city = self.airports[user_input]
                 await self._create_return_trip_select_card(turn_context)
                 flow.last_question_asked = Question.RETURN_TRIP
-        
+
         # validate previous response and  ask for travel date
         elif flow.last_question_asked == Question.RETURN_TRIP:
             validate_result = self._validate_return_trip_value(user_input)
@@ -227,10 +460,11 @@ class FlightSearchBot(ActivityHandler):
             else:
                 flight_search.return_trip = True if validate_result.value == 'yes' else False
                 await turn_context.send_activity(
-                    MessageFactory.text("Enter the date of travel (mm/dd/yyy)?")
+                    MessageFactory.text(
+                        "Enter the date of travel (mm/dd/yyy)?")
                 )
                 flow.last_question_asked = Question.TRAVEL_DATE
-        
+
         # validate previous response and ask for return date
         elif flow.last_question_asked == Question.TRAVEL_DATE:
             validate_result = self._validate_date(user_input)
@@ -241,7 +475,8 @@ class FlightSearchBot(ActivityHandler):
             elif flight_search.return_trip:
                 flight_search.travel_date = validate_result.value
                 await turn_context.send_activity(
-                    MessageFactory.text("Enter the date of return (mm/dd/yyy)?")
+                    MessageFactory.text(
+                        "Enter the date of return (mm/dd/yyy)?")
                 )
                 flow.last_question_asked = Question.RETURN_DATE
             else:
@@ -259,8 +494,8 @@ class FlightSearchBot(ActivityHandler):
                 flight_search.return_date = validate_result.value
                 await self._create_cabin_class_card(turn_context)
                 flow.last_question_asked = Question.CABIN_CLASS
-        
-        #validate previous response and ask the for the passengers cabin class
+
+        # validate previous response and ask the for the passengers cabin class
         elif flow.last_question_asked == Question.CABIN_CLASS:
             validate_result = self._validate_cabin_class(user_input)
             if not validate_result.is_valid:
@@ -270,52 +505,89 @@ class FlightSearchBot(ActivityHandler):
                 await self._create_cabin_class_card(turn_context)
             else:
                 flight_search.cabin_class = validate_result.value
-                await turn_context.send_activity(
-                    MessageFactory.text("Enter the number of adults booking this flight")
-                )
-                flow.last_question_asked = Question.ADULTS
-
-        #validate previous response and ask user to modify/ check flights/ cancel the search
-        elif flow.last_question_asked == Question.ADULTS:
-            validate_result = self._validate_number_of_adults(user_input)
-            if not validate_result.is_valid:
-                await turn_context.send_activity(
-                    MessageFactory.text(validate_result.message)
-                )
-            else:
-                flight_search.adults = validate_result.value
                 message = Activity(
                     type=ActivityTypes.message,
-                    attachments=[self._create_flight_summary(flight_search)],
+                    attachments=[self._create_number_of_passengers_card()],
                 )
                 await turn_context.send_activity(message)
-                flow.last_question_asked = Question.NONE
-    
-    
+                flow.last_question_asked = Question.PASSENGERS
+
+        # validate previous response and ask user to modify/ check flights/ cancel the search
+        elif flow.last_question_asked == Question.PASSENGERS:
+            flight_search.adults = user_input[0]
+            flight_search.children = user_input[1]
+            flight_search.infants = user_input[2]
+            await self._display_summary_card(turn_context, flight_search)
+            flow.last_question_asked = Question.COMPLETED
+        # always display the summary if user has completed
+        elif flow.last_question_asked == Question.COMPLETED:
+            await self._display_summary_card(turn_context, flight_search)
+
+    async def _on_cancel(self, turn_context):
+        await turn_context.send_activity(
+            MessageFactory.text(
+                "Bye, feel free to come back and continue chatting with me"
+            )
+        )
+
+    async def _display_summary_card(self, turn_context, flight_search):
+        message = Activity(
+            type=ActivityTypes.message,
+            attachments=[self._create_flight_summary(flight_search)],
+        )
+        await turn_context.send_activity(message)
+
     def _create_flight_search_url(self, flight_search):
         """create url that when a button with the url is clicked, 
             it takes us to a page with a list of flights returned by the url
         """
         query_params = {
-            "cabinClass":flight_search.cabin_class,
-            "country":"KE",
-            "currency":"KES",
-            "locale":"en",
-            "origin":flight_search.origin,
-            "destination":flight_search.destination,
-            "outboundDate":flight_search.travel_date,
-            "inboundDate":flight_search.return_date,
-            "adults":"1",
-            "children":"0",
-            "infants":"0"
+            "cabinClass": flight_search.cabin_class,
+            "country": "KE",
+            "currency": "KES",
+            "locale": "en",
+            "origin": flight_search.origin,
+            "destination": flight_search.destination,
+            "outboundDate": flight_search.travel_date,
+            "inboundDate": flight_search.return_date,
+            "adults": "1",
+            "children": "0",
+            "infants": "0"
         }
         return f"{FLIGHT_SEARCH_BASE_URL}?{urlencode(query_params)}"
-        
+
+    async def _create_modify_flight_profile_card(self, turn_context: TurnContext, buttons):
+        card = HeroCard(
+            title="Modify Flight Profile",
+            text="Choose the question that you need to modify",
+            images=[
+                CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
+            buttons=buttons
+        )
+        return await turn_context.send_activity(
+            MessageFactory.attachment(CardFactory.hero_card(card))
+        )
+
+    def _create_card_actions_for_modify_flight_profile(self):
+        buttons = []
+        for k, v in self.questions.items():
+            buttons.append(
+                CardAction(
+                    type=ActionTypes.post_back,
+                    title=f"Modify {k}",
+                    text=k,
+                    display_text=f"Modify {k}",
+                    value=k
+                )
+            )
+        return buttons
+
     async def _create_return_trip_select_card(self, turn_context: TurnContext):
         card = HeroCard(
             title="Return Trip",
             text="Choose if the search you are doing is for a return trip or not",
-            images=[CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
+            images=[
+                CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
             buttons=[
                 CardAction(
                     type=ActionTypes.post_back,
@@ -341,7 +613,8 @@ class FlightSearchBot(ActivityHandler):
         card = HeroCard(
             title="Choose Cabin Class",
             text="Please choose the cabin class for your flight",
-            images=[CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
+            images=[
+                CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
             buttons=[
                 CardAction(
                     type=ActionTypes.post_back,
@@ -377,42 +650,18 @@ class FlightSearchBot(ActivityHandler):
             MessageFactory.attachment(CardFactory.hero_card(card))
         )
 
-    async def _on_return_from_exit(self, turn_context: TurnContext):
-        text = """Hey, do you want to continue from where you left or your prefer start over again?"""
-        card = HeroCard(
-            title="Welcome Back",
-            text=text,
-            images=[CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
-            buttons=[
-                CardAction(
-                    type=ActionTypes.post_back,
-                    title="Continue",
-                    text="continue",
-                    display_text="Continue",
-                    value="continue"
-                ),
-                CardAction(
-                    type=ActionTypes.post_back,
-                    title="Start Over",
-                    text="start_over",
-                    display_text="Start Over",
-                    value="start over"
-                )
-            ]
-        )
-        return await turn_context.send_activity(
-            MessageFactory.attachment(CardFactory.hero_card(card))
-        )
-    
     async def _create_welcome_card(self, turn_context: TurnContext):
-        text = """Hello, I am here to help you search for the
-                    best flight to your destination. Pleace click the 
-                    Search Flights button to proceed or Cancel to leave.
-                    Incase you want to exit midway, you can type exit or cancel"""
+        text = """
+                Hello, I am here to help you search for the
+                best flight to your destination. Pleace click the 
+                Search Flights button to proceed or Cancel to leave.
+                Incase you want to exit midway, you can type exit or cancel
+            """
         card = HeroCard(
             title="Search Flights",
             text=text,
-            images=[CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
+            images=[
+                CardImage(url="https://www.bls.gov/cpi/factsheets/airline-fares-image.jpg")],
             buttons=[
                 CardAction(
                     type=ActionTypes.post_back,
@@ -423,22 +672,23 @@ class FlightSearchBot(ActivityHandler):
                 ),
                 CardAction(
                     type=ActionTypes.post_back,
-                    title="Cancel",
-                    text="cancel",
-                    display_text="Cancel",
-                    value="cancel"
+                    title="Exit",
+                    text="exit",
+                    display_text="Exit",
+                    value="exit"
                 )
             ]
         )
         return await turn_context.send_activity(
             MessageFactory.attachment(CardFactory.hero_card(card))
         )
-    
-    async def _send_card(self, turn_context: TurnContext, title, text, buttons):
+
+    async def _create_herocard(self, turn_context: TurnContext, title, text, buttons):
         card = HeroCard(
             title=title,
             text=text,
-            images=[CardImage(url="https://www.aurecongroup.com/-/media/images/aurecon/content/projects/property/hanoi-airport/hanoi-airport-interior.jpg")],
+            images=[CardImage(
+                url="https://www.aurecongroup.com/-/media/images/aurecon/content/projects/property/hanoi-airport/hanoi-airport-interior.jpg")],
             buttons=buttons
         )
         return await turn_context.send_activity(
@@ -469,7 +719,7 @@ class FlightSearchBot(ActivityHandler):
             'destinationLocationCode': flight_search.destination,
             'departureDate': f"{travel_date[2]}-{travel_date[0]}-{travel_date[1]}",
             'returnDate': f"{return_date[2]}-{return_date[0]}-{return_date[1]}",
-            'adults':1
+            'adults': 1
 
         }
 
@@ -480,20 +730,20 @@ class FlightSearchBot(ActivityHandler):
                 message="I'm sorry, we couldn't retrieve flights for you, please retry the process",
             )
         else:
-            flights =  res.json()["data"]["itineraries"]
+            flights = res.json()["data"]["itineraries"]
             if flights:
                 return ValidationResult(
-                is_valid=True,
-                value=flights,
-            )
+                    is_valid=True,
+                    value=flights,
+                )
             else:
                 return ValidationResult(
-                is_valid=False,
-                message="I'm sorry, we couldn't retrieve flights for you, please retry the process",
-            )
+                    is_valid=False,
+                    message="I'm sorry, we couldn't retrieve flights for you, please retry the process",
+                )
 
     def _search_airports_by_location(self, airport):
-        res_obj = self.http_service.post(AIRPORT_SEARCH_API, { "term": airport })
+        res_obj = self.http_service.post(AIRPORT_SEARCH_API, {"term": airport})
         res = res_obj.json()
         if res["statusCode"] == 200 and len(res["airports"]) > 0:
             return ValidationResult(
@@ -507,7 +757,7 @@ class FlightSearchBot(ActivityHandler):
                 maybe the keyword was ambigous or no airport has such a keyword. 
                 Please enter a different name""",
             )
-    
+
     def _validate_return_trip_value(self, value):
         if value in ["yes", "no"]:
             return ValidationResult(
@@ -534,6 +784,7 @@ class FlightSearchBot(ActivityHandler):
                 maybe the keyword was ambigous or no airport has such a keyword. 
                 Please enter a different name""",
             )
+
     def _validate_cabin_class(self, user_input):
         if user_input in ["Economy", "PremiumEconomy", "Business", "First"]:
             return ValidationResult(
@@ -545,23 +796,18 @@ class FlightSearchBot(ActivityHandler):
                 is_valid=False,
                 message="Please select a valid value from the options below",
             )
-    
-    def _validate_number_of_adults(self, user_input):
-        if isinstance(user_input, int):
-            return ValidationResult(
-                is_valid=True,
-                value=user_input,
-            )
-        else:
-            return ValidationResult(
-                is_valid=False,
-                message="Please enter a valid number of adults booking this flight",
-            )
+
+    def _create_number_of_passengers_card(self):
+        return CardFactory.adaptive_card(
+            CustomAdaptiveCard.create_number_of_passengers_card()
+        )
 
     def _create_flight_summary(self, flight_search):
-        flight_search_results_url = self._create_flight_search_url(flight_search)
+        flight_search_results_url = self._create_flight_search_url(
+            flight_search)
         return CardFactory.adaptive_card(
-            CustomAdaptiveCard.create_flight_summary_adaptive_card(flight_search.__dict__, flight_search_results_url)
+            CustomAdaptiveCard.create_flight_summary_adaptive_card(
+                flight_search.__dict__, flight_search_results_url)
         )
 
     def _create_hero_card(self) -> Attachment:
@@ -581,7 +827,7 @@ class FlightSearchBot(ActivityHandler):
             ],
         )
         return CardFactory.hero_card(card)
-    
+
     def _validate_origin(self, origin, destination):
         """Ensures that origin and destination are not the same"""
         if origin != destination:
@@ -593,7 +839,7 @@ class FlightSearchBot(ActivityHandler):
             return ValidationResult(
                 is_valid=False,
                 message="""Origin and destination cannot be the same, 
-                        Please enter which airport will you be flying from?""",
+                        Please enter which airport will you be departing from?""",
             )
 
     def _validate_date(self, user_input: str) -> ValidationResult:
@@ -616,7 +862,8 @@ class FlightSearchBot(ActivityHandler):
                                 year=now.year, month=now.month, day=now.day
                             )
                         else:
-                            candidate = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+                            candidate = datetime.strptime(
+                                value, "%Y-%m-%d %H:%M:%S")
 
                         # user response must be more than an hour out
                         diff = candidate - now

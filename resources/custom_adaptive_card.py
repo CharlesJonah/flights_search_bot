@@ -1,5 +1,51 @@
 class CustomAdaptiveCard:
     @staticmethod
+    def create_number_of_passengers_card():
+        return {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.0",
+            "body": [
+                    {
+                        "type": "TextBlock",
+                        "text": "Passengers",
+                        "size": "medium",
+                        "isSubtle": True,
+                    },
+                {
+                        "type": "Input.Number",
+                        "id": "adults",
+                        "placeholder": "Enter number of adults",
+                        "min": 1,
+                        "max": 1000,
+                        "value": 3
+                        },
+                {
+                        "type": "Input.Number",
+                        "id": "children",
+                        "placeholder": "Enter number of children",
+                        "min": 1,
+                        "max": 1000,
+                        "value": 0
+                        },
+                {
+                        "type": "Input.Number",
+                        "id": "infants",
+                        "placeholder": "Enter number of infants",
+                        "min": 1,
+                        "max": 1000,
+                        "value": 0
+                        }
+            ],
+            "actions": [
+                {
+                    "type": "Action.Submit",
+                    "title": "Submit"
+                }
+            ]
+        }
+
+    @staticmethod
     def create_flight_summary_adaptive_card(flight_search, flight_search_results_url):
         return {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -90,7 +136,8 @@ class CustomAdaptiveCard:
                             "type": "Column",
                             "width": 1,
                             "items": [
-                                {"type": "TextBlock", "text": flight_search["destination_city"], "isSubtle": True},
+                                {"type": "TextBlock",
+                                    "text": flight_search["destination_city"], "isSubtle": True},
                                 {
                                     "type": "TextBlock",
                                     "size": "extraLarge",
@@ -145,7 +192,19 @@ class CustomAdaptiveCard:
                             "items": [
                                 {
                                     "type": "TextBlock",
-                                    "text": "Total",
+                                    "text": "Adults",
+                                    "size": "medium",
+                                    "isSubtle": True,
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": "Children",
+                                    "size": "medium",
+                                    "isSubtle": True,
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": "Infants",
                                     "size": "medium",
                                     "isSubtle": True,
                                 }
@@ -158,7 +217,21 @@ class CustomAdaptiveCard:
                                 {
                                     "type": "TextBlock",
                                     "horizontalAlignment": "right",
-                                    "text": "$4,032.54",
+                                    "text": flight_search["adults"],
+                                    "size": "medium",
+                                    "weight": "bolder",
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "horizontalAlignment": "right",
+                                    "text": flight_search["children"],
+                                    "size": "medium",
+                                    "weight": "bolder",
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "horizontalAlignment": "right",
+                                    "text": flight_search["infants"],
                                     "size": "medium",
                                     "weight": "bolder",
                                 }
@@ -167,19 +240,24 @@ class CustomAdaptiveCard:
                     ],
                 },
                 {
-                "type": "ActionSet",
-                "actions": [
-                    {
-                        "type": "Action.OpenUrl",
-                        "title": "Search Flights",
-                        "url": flight_search_results_url
-                    },
-                    {
-                        "type": "Action.Submit",
-                        "title": "Modify Flight Search",
-                        "data": "modify"
-                    },
-                ]
-            }
+                    "type": "ActionSet",
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "Search Flights",
+                            "url": flight_search_results_url
+                        },
+                        {
+                            "type": "Action.Submit",
+                            "title": "Modify Flight Search",
+                            "data": 'modify'
+                        },
+                        {
+                            "type": "Action.Submit",
+                            "title": "Exit/Cancel",
+                            "data": 'exit'
+                        }
+                    ]
+                }
             ],
         }

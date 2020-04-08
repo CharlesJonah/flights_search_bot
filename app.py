@@ -1,12 +1,7 @@
-import sys
-import traceback
-from datetime import datetime
-from dotenv import load_dotenv
-load_dotenv()
-
-
-from aiohttp import web
-from aiohttp.web import Request, Response, json_response
+from config import DefaultConfig
+from bot import FlightSearchBot
+from botbuilder.schema import Activity, ActivityTypes
+from botbuilder.core.integration import aiohttp_error_middleware
 from botbuilder.core import (
     BotFrameworkAdapter,
     BotFrameworkAdapterSettings,
@@ -15,11 +10,13 @@ from botbuilder.core import (
     TurnContext,
     UserState,
 )
-from botbuilder.core.integration import aiohttp_error_middleware
-from botbuilder.schema import Activity, ActivityTypes
-
-from bots import FlightSearchBot
-from config import DefaultConfig
+from aiohttp.web import Request, Response, json_response
+from aiohttp import web
+import sys
+import traceback
+from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv()
 
 CONFIG = DefaultConfig()
 
@@ -69,6 +66,8 @@ USER_STATE = UserState(MEMORY)
 BOT = FlightSearchBot(CONVERSATION_STATE, USER_STATE)
 
 # Listen for incoming requests on /api/messages.
+
+
 async def messages(req: Request) -> Response:
     # Main bot message handler.
     if "application/json" in req.headers["Content-Type"]:
@@ -87,10 +86,12 @@ async def messages(req: Request) -> Response:
 APP = web.Application(middlewares=[aiohttp_error_middleware])
 APP.router.add_post("/api/messages", messages)
 
-def  create_app():
-    #application factory to be used with aiohttp-devtools for development purposes
-    #Not to use in production environment
+
+def create_app():
+    # application factory to be used with aiohttp-devtools for development purposes
+    # Not to use in production environment
     return APP
+
 
 if __name__ == "__main__":
     try:
