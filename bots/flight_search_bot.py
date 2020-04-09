@@ -285,7 +285,7 @@ class FlightSearchBot(ActivityHandler):
                 if flight_search.return_trip:
                     await turn_context.send_activity(
                         MessageFactory.text(
-                            "Enter the date of return (mm/dd/yyy)?")
+                            "Enter the date of return")
                     )
                     flow.last_question_asked = Question.RETURN_DATE
                 else:
@@ -312,7 +312,7 @@ class FlightSearchBot(ActivityHandler):
         # ask for travel date
         if flow.last_question_asked == Question.RETURN_TRIP:
             await turn_context.send_activity(
-                MessageFactory.text("Enter the date of travel (mm/dd/yyy)?")
+                MessageFactory.text("Enter the date of travel")
             )
             flow.last_question_asked = Question.TRAVEL_DATE
 
@@ -335,7 +335,7 @@ class FlightSearchBot(ActivityHandler):
         # ask for return date
         if flow.last_question_asked == Question.TRAVEL_DATE:
             await turn_context.send_activity(
-                MessageFactory.text("Enter the date of return (mm/dd/yyy)?")
+                MessageFactory.text("Enter the date of return")
             )
             flow.last_question_asked = Question.RETURN_DATE
 
@@ -474,7 +474,7 @@ class FlightSearchBot(ActivityHandler):
                 flight_search.return_trip = True if validate_result.value == 'yes' else False
                 await turn_context.send_activity(
                     MessageFactory.text(
-                        "Enter the date of travel (mm/dd/yyy)?")
+                        "Enter the date of travel")
                 )
                 flow.last_question_asked = Question.TRAVEL_DATE
 
@@ -489,7 +489,7 @@ class FlightSearchBot(ActivityHandler):
                 flight_search.travel_date = validate_result.value
                 await turn_context.send_activity(
                     MessageFactory.text(
-                        "Enter the date of return (mm/dd/yyy)?")
+                        "Enter the date of return")
                 )
                 flow.last_question_asked = Question.RETURN_DATE
             else:

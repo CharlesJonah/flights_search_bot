@@ -47,6 +47,7 @@ class CustomAdaptiveCard:
 
     @staticmethod
     def create_flight_summary_adaptive_card(flight_search, flight_search_results_url):
+        return_trip = 'Yes' if flight_search["return_trip"] else 'No'
         return {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
             "version": "1.0",
@@ -124,20 +125,25 @@ class CustomAdaptiveCard:
                 },
                 {
                     "type": "TextBlock",
+                    "$when": "{return_trip == 'Yes'}",
                     "text": flight_search["return_date"],
                     "weight": "bolder",
                     "spacing": "none",
                 },
                 {
                     "type": "ColumnSet",
+                    "$when": "{return_trip == 'Yes'}",
                     "separator": True,
                     "columns": [
                         {
                             "type": "Column",
                             "width": 1,
                             "items": [
-                                {"type": "TextBlock",
-                                    "text": flight_search["destination_city"], "isSubtle": True},
+                                {
+                                    "type": "TextBlock",
+                                    "text": flight_search["destination_city"],
+                                    "isSubtle": True
+                                },
                                 {
                                     "type": "TextBlock",
                                     "size": "extraLarge",
@@ -162,6 +168,7 @@ class CustomAdaptiveCard:
                         },
                         {
                             "type": "Column",
+
                             "width": 1,
                             "items": [
                                 {
@@ -177,6 +184,50 @@ class CustomAdaptiveCard:
                                     "color": "accent",
                                     "text": flight_search["origin"],
                                     "spacing": "none",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "ColumnSet",
+                    "spacing": "medium",
+                    "columns": [
+                        {
+                            "type": "Column",
+                            "width": "1",
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": "Return Trip",
+                                    "size": "medium",
+                                    "isSubtle": True,
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": "Cabin Class",
+                                    "size": "medium",
+                                    "isSubtle": True,
+                                }
+                            ],
+                        },
+                        {
+                            "type": "Column",
+                            "width": 1,
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "horizontalAlignment": "right",
+                                    "text": return_trip,
+                                    "size": "medium",
+                                    "weight": "bolder",
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "horizontalAlignment": "right",
+                                    "text": flight_search["cabin_class"],
+                                    "size": "medium",
+                                    "weight": "bolder",
                                 },
                             ],
                         },
