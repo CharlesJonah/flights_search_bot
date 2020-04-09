@@ -4,7 +4,7 @@ class FlightSearch:
     """
 
     def __init__(self, origin: str = None, destination: str = None,
-                 travel_date: str = None, return_date: str = None, return_trip: str = 'no',
+                 travel_date: str = None, return_date: str = None, return_trip: bool = False,
                  origin_city: str = None, destination_city: str = None, cabin_class: str = None,
                  adults: int = 1, children: int = 0, infants: int = 0):
         self.origin = origin

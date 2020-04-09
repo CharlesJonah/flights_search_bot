@@ -136,7 +136,8 @@ class FlightSearchBot(ActivityHandler):
             await self._on_cancel(turn_context)
         elif (flow.last_question_asked == Question.COMPLETED) and (user_input == "modify"):
             chat_state.chat_state = State.MODIFY
-            buttons = self._create_card_actions_for_modify_flight_profile()
+            buttons = self._create_card_actions_for_modify_flight_profile(
+                flight_search)
             await self._create_modify_flight_profile_card(turn_context, buttons)
         elif chat_state.chat_state == State.MODIFY:
             if self._is_valid_modify_option(flow, user_input):
@@ -280,7 +281,27 @@ class FlightSearchBot(ActivityHandler):
                 )
                 await self._create_return_trip_select_card(turn_context)
             else:
-                flight_search.return_trip = validate_result.value
+                flight_search.return_trip = True if validate_result.value == "yes" else False
+                if flight_search.return_trip:
+                    await turn_context.send_activity(
+                        MessageFactory.text(
+                            "Enter the date of return (mm/dd/yyy)?")
+                    )
+                    flow.last_question_asked = Question.RETURN_DATE
+                else:
+                    flight_search.return_date = None
+                    chat_state.chat_state = State.NORMAL
+                    flow.question_being_modified = Question.COMPLETED
+                    flow.last_question_asked = Question.COMPLETED
+                    await self._display_summary_card(turn_context, flight_search)
+        elif flow.last_question_asked == Question.RETURN_DATE:
+            validate_result = self._validate_date(user_input)
+            if not validate_result.is_valid:
+                await turn_context.send_activity(
+                    MessageFactory.text(validate_result.message)
+                )
+            else:
+                flight_search.return_date = validate_result.value
                 chat_state.chat_state = State.NORMAL
                 flow.question_being_modified = Question.COMPLETED
                 flow.last_question_asked = Question.COMPLETED
@@ -472,6 +493,7 @@ class FlightSearchBot(ActivityHandler):
                 )
                 flow.last_question_asked = Question.RETURN_DATE
             else:
+                flight_search.travel_date = validate_result.value
                 await self._create_cabin_class_card(turn_context)
                 flow.last_question_asked = Question.CABIN_CLASS
 
@@ -560,18 +582,19 @@ class FlightSearchBot(ActivityHandler):
             MessageFactory.attachment(CardFactory.hero_card(card))
         )
 
-    def _create_card_actions_for_modify_flight_profile(self):
+    def _create_card_actions_for_modify_flight_profile(self, flight_search):
         buttons = []
         for k, v in self.questions.items():
-            buttons.append(
-                CardAction(
-                    type=ActionTypes.post_back,
-                    title=f"Modify {k}",
-                    text=k,
-                    display_text=f"Modify {k}",
-                    value=k
+            if not (flight_search.return_trip == False and k == "Return Date"):
+                buttons.append(
+                    CardAction(
+                        type=ActionTypes.post_back,
+                        title=f"Modify {k}",
+                        text=k,
+                        display_text=f"Modify {k}",
+                        value=k
+                    )
                 )
-            )
         return buttons
 
     async def _create_return_trip_select_card(self, turn_context: TurnContext):
