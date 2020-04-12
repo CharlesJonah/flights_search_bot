@@ -94,7 +94,7 @@ def healthcheck(req: Request) -> Response:
 
 APP = web.Application(middlewares=[aiohttp_error_middleware])
 APP.router.add_post("/api/messages", messages)
-APP.router.add_post("/", healthcheck)
+APP.router.add_get("/", healthcheck)
 
 if __name__ == "__main__":
     try:
