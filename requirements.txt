@@ -12,7 +12,7 @@ botbuilder-core==4.7.1
 botbuilder-dialogs==4.7.1
 botbuilder-schema==4.7.1
 botframework-connector==4.7.1
-certifi==2019.11.28
+certifi==2022.12.7
 cffi==1.14.0
 chardet==3.0.4
 cryptography==2.8
